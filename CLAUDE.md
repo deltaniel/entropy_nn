@@ -4,11 +4,13 @@
 
 ## Project Overview
 
-`entropy_nn` is a research project exploring entropy-based compression to reduce memory usage during neural network inference. The core idea: store weights/activations in compressed form and decode on-demand (layer-by-layer) rather than fully decompressing before computation.
+`entropy_nn` is a solo research project exploring entropy-based compression to reduce **resource consumption** (memory, energy, compute) during neural network training and inference. The core idea: store weights/activations in compressed form and decode on-demand (layer-by-layer) to reduce memory bandwidth and energy usage.
 
-**Goal**: Understand how on-demand entropy decoding affects peak memory, bandwidth, latency, and accuracy using small testbed models.
+**Problem**: Memory access dominates energy consumption in neural networks (~100× more than arithmetic). Neural network training/inference is resource-intensive and energy-expensive.
 
-**Current focus**: Quantization → entropy measurement → compression analysis on MNIST MLP.
+**Goal**: Quantify how on-demand entropy decoding affects peak memory, energy, bandwidth, latency, and accuracy using testbed models.
+
+**Current focus**: Quantization → entropy measurement → compression analysis on MNIST MLP. Next: decode-on-fly inference with memory/energy profiling.
 
 ## Architecture
 
@@ -52,9 +54,15 @@ train-mnist-mlp --config configs/train_baseline.yaml --num-epochs 20  # override
 
 ## Research Context
 
-**Next priorities**:
-1. Differentiable entropy estimator for training-time regularization
-2. Decode-on-the-fly inference pipeline (compress → decode per layer → measure peak memory)
-3. Activation compression during training
+**Core Innovation**: Treat entropy as a first-class execution metric. Weights/activations stay compressed until computation time, trading decode compute for memory bandwidth (and thus energy).
 
-See README.md for usage examples and detailed workflow documentation.
+**Why This Matters**: Memory access costs ~100× more energy than arithmetic. Reducing memory bandwidth directly reduces energy consumption and enables training/inference on resource-constrained hardware.
+
+**Next priorities**:
+1. Decode-on-the-fly inference pipeline (compress → decode per layer → measure peak memory + energy)
+2. Energy break-even analysis (when does decode energy < saved memory energy?)
+3. Activation compression during training (novel, high-impact)
+
+**Literature Gap**: Most work focuses on storage compression or theoretical ratios. We target runtime energy/memory reduction with empirical validation on real hardware.
+
+See [docs/research_direction.md](docs/research_direction.md) for detailed motivation, related work, and implementation roadmap. See README.md for usage examples and workflow documentation.

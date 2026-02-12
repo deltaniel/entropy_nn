@@ -164,8 +164,18 @@ pytest
 
 ## Research Context
 
-- **Goal**: Reduce memory usage during inference via on-demand entropy decoding
-- **Approach**: Quantize → measure entropy → compress → decode layer-by-layer
-- **Metrics**: Entropy (bits/symbol), compression ratio, accuracy, memory footprint
+**Problem**: Neural network training/inference consumes massive amounts of energy and memory. Memory access dominates energy consumption (~100× more than arithmetic).
 
-See [CLAUDE.md](CLAUDE.md) for detailed project overview and research directions.
+**Approach**: Store weights/activations compressed, decode on-demand layer-by-layer to reduce memory bandwidth and energy usage.
+
+- **Goal**: Reduce resource consumption (energy, memory, compute) during training/inference
+- **Method**: Quantize → measure entropy → compress → decode layer-by-layer during execution
+- **Innovation**: Treat entropy as first-class execution metric; trade decode compute for memory bandwidth savings
+- **Hypothesis**: Since memory access costs ~100× more energy than compute, decode overhead is worth it if compression ratio > 1.5-2×
+- **Metrics**: Peak memory, memory bandwidth, energy consumption, decode latency, accuracy
+
+### Documentation
+- **Quick Start**: This README (usage and workflow)
+- **Motivation & Energy Analysis**: [docs/research_direction.md](docs/research_direction.md) (why this matters, related work, roadmap)
+- **Key Concepts**: [docs/concepts_explained.md](docs/concepts_explained.md) (entropy, compression, energy trade-offs explained)
+- **Project Conventions**: [CLAUDE.md](CLAUDE.md) (coding standards, current priorities)
