@@ -1,0 +1,34 @@
+# Evaluation configuration for 8-bit quantization analysis
+
+name: mnist_mlp_eval_8bit
+description: "Evaluate trained MNIST MLP with 8-bit quantization analysis"
+tags:
+  - evaluation
+  - 8bit
+  - compression
+
+# Output paths
+output_dir: outputs
+checkpoint_dir: checkpoints/mnist_mlp
+
+# Evaluation configuration
+eval:
+  # Checkpoint path
+  checkpoint: checkpoints/mnist_mlp/model_state.pt
+
+  # Quantization analysis
+  bits: 8
+
+  # Data
+  data_root: data
+  batch_size: 256
+  num_workers: 2
+
+  # Hardware
+  device: auto
+
+  # Analysis options
+  skip_eval: false              # Set to true to skip accuracy check
+  run_zlib: true                # Run zlib compression baseline
+  zlib_level: 9                 # Compression level (1-9)
+  run_activation_probe: true    # Probe activation entropy

@@ -1,24 +1,30 @@
 from __future__ import annotations
 
 import argparse
-import zlib
 from dataclasses import asdict
 from pathlib import Path
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
-from entropy_nn.data.mnist import make_loaders
-from entropy_nn.losses.entropy import (
+from entropy_nn.compression.baselines import print_zlib_compression, weight_zlib_compress
+from entropy_nn.compression.entropy import (
+    measure_weight_entropy,
+    print_entropy_analysis,
     tensor_entropy_from_ints,
-    uniform_quantize_symmetric,
-    report_weight_entropy,
 )
-from entropy_nn.models.mlp import MLP
+from entropy_nn.compression.quantize import uniform_quantize_symmetric
+from entropy_nn.data.mnist import make_loaders
+from entropy_nn.experiments.config import EvalConfig, ExperimentConfig
+from entropy_nn.experiments.results import (
+    ActivationProbeResults,
+    CompressionResults,
+    EvaluationResults,
+    ExperimentResults,
+    LayerEntropyStats,
+)
+from entropy_nn.models import MLP, MNIST_DIMS
 from entropy_nn.training.loops import evaluate
-
-MNIST_DIMS = [28 * 28, 256, 128, 10]
 
 
 def _load_checkpoint(ckpt_path: Path, map_location: str | torch.device = "cpu") -> dict:
@@ -36,147 +42,16 @@ def _load_checkpoint(ckpt_path: Path, map_location: str | torch.device = "cpu") 
     raise TypeError(f"Unexpected checkpoint type: {type(ckpt)}")
 
 
-def pack_bits_u16(values: torch.Tensor, bits: int) -> bytes:
-    """
-    Pack non-negative integer symbols into a compact byte stream using exactly `bits` bits/value.
-
-    values: 1D tensor of dtype int64/int32/int16 on CPU, values must fit in [0, 2**bits - 1]
-    bits: number of bits per value (1..16)
-
-    Returns: packed bytes (little-endian within the bitstream).
-    """
-    if bits < 1 or bits > 16:
-        raise ValueError(f"bits must be in [1,16], got {bits}")
-
-    v = values.reshape(-1).to(torch.int64).cpu()
-    if v.numel() == 0:
-        return b""
-
-    maxv = (1 << bits) - 1
-    if v.min().item() < 0 or v.max().item() > maxv:
-        raise ValueError(f"values out of range for bits={bits}: min={v.min().item()} max={v.max().item()}")
-
-    out = bytearray()
-    acc = 0
-    acc_bits = 0
-
-    for x in v.tolist():
-        acc |= (x & maxv) << acc_bits
-        acc_bits += bits
-
-        while acc_bits >= 8:
-            out.append(acc & 0xFF)
-            acc >>= 8
-            acc_bits -= 8
-
-    if acc_bits > 0:
-        out.append(acc & 0xFF)
-
-    return bytes(out)
-
-
-def quantized_symbols_for_packing(x: torch.Tensor, bits: int) -> tuple[torch.Tensor, float, int]:
-    """
-    Quantize tensor symmetrically to signed integers, then convert to unsigned symbols for packing.
-
-    Returns:
-      sym: int64 tensor in [0, 2**bits - 1] (safe for pack_bits_u16)
-      scale: float
-      qmax: int
-    """
-    q, scale, qmax = uniform_quantize_symmetric(x, bits=bits)
-    # q in [-qmax, qmax] ; map to [0, 2*qmax]
-    sym = (q + qmax).to(torch.int64)
-
-    # For symmetric quantization, number of used symbols is (2*qmax+1), which fits in 2**bits.
-    # For bits=16, qmax=32767 => 65535 symbols, still fine.
-    return sym, scale, qmax
-
-
-
-@torch.no_grad()
-def _weight_entropy_and_ratios(model: nn.Module, bits: int) -> None:
-    """
-    Prints per-layer entropy, theoretical ratio (bits/H), and totals.
-    """
-    print("\n[Derived] Entropy + theoretical best ratio (bits / entropy):")
-
-    total_elems = 0
-    total_bits_lb = 0.0
-
-    for name, p in model.named_parameters():
-        if p.ndim != 2:
-            continue
-
-        q, scale, qmax = uniform_quantize_symmetric(p.data, bits=bits)
-        q_sym = (q + qmax).to(torch.int64)
-        H = tensor_entropy_from_ints(q_sym, num_symbols=(2 * qmax + 1))
-
-        n = p.numel()
-        total_elems += n
-        total_bits_lb += H * n
-
-        ratio = (bits / H) if H > 0 else float("inf")
-        print(
-            f"{name:12s} | H={H:6.3f} bits/sym | best_ratio={ratio:5.2f}x | "
-            f"scale={scale:.6g} | n={n}"
-        )
-
-    if total_elems > 0:
-        H_total = total_bits_lb / total_elems
-        ratio_total = (bits / H_total) if H_total > 0 else float("inf")
-        print(f"{'TOTAL':12s} | H={H_total:6.3f} bits/sym | best_ratio={ratio_total:5.2f}x")
-
-
-@torch.no_grad()
-def _weight_zlib_compress(model: nn.Module, bits: int, level: int = 9) -> None:
-    """
-    Compresses quantized weights with zlib as a practical baseline.
-
-    RAW bytes are now properly bit-packed (bits/value), so ratios are meaningful across bitwidths.
-    """
-    print("\n[Baseline] zlib compression on BIT-PACKED quantized weights (bytes):")
-
-    total_raw = 0
-    total_comp = 0
-
-    for name, p in model.named_parameters():
-        if p.ndim != 2:
-            continue
-
-        sym, _, _ = quantized_symbols_for_packing(p.data, bits=bits)
-        raw = pack_bits_u16(sym, bits=bits)
-        comp = zlib.compress(raw, level=level)
-
-        total_raw += len(raw)
-        total_comp += len(comp)
-
-        ratio = (len(raw) / len(comp)) if len(comp) > 0 else float("inf")
-        print(
-            f"{name:12s} | raw={len(raw)/1024:8.2f} KB | comp={len(comp)/1024:8.2f} KB | ratio={ratio:5.2f}x"
-        )
-
-    if total_raw > 0:
-        ratio_total = total_raw / total_comp if total_comp > 0 else float("inf")
-        print(
-            f"{'TOTAL':12s} | raw={total_raw/1024:8.2f} KB | comp={total_comp/1024:8.2f} KB | ratio={ratio_total:5.2f}x"
-        )
-        print("Note: raw size is true bit-packed size; comp includes zlib header/overhead.")
-
-
 @torch.no_grad()
 def _activation_entropy_probe(
     model: MLP,
     test_loader,
     device: torch.device,
     bits: int,
-) -> None:
+) -> ActivationProbeResults:
     """
     Captures one batch, measures entropy of ReLU outputs after first two linear layers.
-    Assumes MLP has a Sequential/ModuleList 'fcs' or individual layers; adapts to your model.
     """
-    print("\n[Probe] Activation entropy on one batch (ReLU outputs):")
-
     x, _ = next(iter(test_loader))
     x = x.to(device, non_blocking=True)
 
@@ -185,15 +60,14 @@ def _activation_entropy_probe(
     def save_act(name: str):
         def _hook(_m, _inp, out):
             acts[name] = out.detach()
+
         return _hook
 
     hooks = []
-    # Your printed names are fcs.0.weight etc, so assume fcs[0], fcs[1]
     if hasattr(model, "fcs"):
         hooks.append(model.fcs[0].register_forward_hook(save_act("fcs0_out")))
         hooks.append(model.fcs[1].register_forward_hook(save_act("fcs1_out")))
     else:
-        # fallback for older style
         if hasattr(model, "fc1"):
             hooks.append(model.fc1.register_forward_hook(save_act("fc1_out")))
         if hasattr(model, "fc2"):
@@ -204,10 +78,7 @@ def _activation_entropy_probe(
     for h in hooks:
         h.remove()
 
-    if not acts:
-        print("Could not capture activations (no recognized layers).")
-        return
-
+    layer_results = []
     for name, a in acts.items():
         a = F.relu(a)
         zero_frac = float((a == 0).float().mean().item())
@@ -216,64 +87,190 @@ def _activation_entropy_probe(
         q_sym = (q + qmax).to(torch.int64)
         H = tensor_entropy_from_ints(q_sym, num_symbols=(2 * qmax + 1))
 
+        layer_results.append(
+            {
+                "name": name,
+                "entropy_bits": H,
+                "zero_fraction": zero_frac,
+                "scale": scale,
+                "shape": list(a.shape),
+            }
+        )
+
+    return ActivationProbeResults(bits=bits, layers=layer_results)
+
+
+def print_activation_probe(results: ActivationProbeResults) -> None:
+    """Pretty-print activation probe results."""
+    print(f"\n[Probe] Activation entropy on one batch (ReLU outputs, {results.bits}-bit quant):")
+    for layer in results.layers:
         print(
-            f"{name:10s} | H={H:6.3f} bits/sym | zero_frac={zero_frac*100:5.1f}% | scale={scale:.6g} | shape={tuple(a.shape)}"
+            f"{layer['name']:10s} | H={layer['entropy_bits']:6.3f} bits/sym | "
+            f"zero_frac={layer['zero_fraction'] * 100:5.1f}% | "
+            f"scale={layer['scale']:.6g} | shape={tuple(layer['shape'])}"
         )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Load a checkpoint and report entropy/compression stats (MNIST MLP).")
-    parser.add_argument("--ckpt", type=Path, default=Path("checkpoints/mnist_mlp/model_state.pt"))
-    parser.add_argument("--bits", type=int, default=8, choices=[2, 3, 4, 5, 6, 7, 8, 16])
-    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--data-root", type=Path, default=Path("data"))
-    parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--num-workers", type=int, default=2)
-    parser.add_argument("--no-eval", action="store_true", help="Skip MNIST evaluation; only report entropy.")
-    parser.add_argument("--zlib", action="store_true", help="Also run zlib compression baseline on quantized weights.")
-    parser.add_argument("--zlib-level", type=int, default=9, choices=list(range(1, 10)))
-    parser.add_argument("--act-probe", action="store_true", help="Also probe activation entropy on one batch.")
+    parser = argparse.ArgumentParser(description="Evaluate MNIST MLP checkpoint with experiment tracking.")
+    parser.add_argument("--config", type=Path, help="Path to YAML config file")
+    parser.add_argument("--name", type=str, help="Experiment name (overrides config)")
+
+    # Eval args (override config)
+    parser.add_argument("--checkpoint", type=Path, help="Checkpoint path")
+    parser.add_argument("--bits", type=int, choices=[2, 3, 4, 5, 6, 7, 8, 16], help="Quantization bits")
+    parser.add_argument("--device", type=str, help="Device (cuda/cpu/auto)")
+    parser.add_argument("--data-root", type=Path, help="Data root directory")
+    parser.add_argument("--batch-size", type=int, help="Batch size")
+    parser.add_argument("--num-workers", type=int, help="Number of workers")
+    parser.add_argument("--skip-eval", action="store_true", help="Skip accuracy evaluation")
+    parser.add_argument("--zlib", action="store_true", help="Run zlib compression baseline")
+    parser.add_argument("--zlib-level", type=int, choices=list(range(1, 10)), help="Zlib compression level")
+    parser.add_argument("--act-probe", action="store_true", help="Probe activation entropy")
+    parser.add_argument("--output-dir", type=Path, help="Output directory for results")
+
     args = parser.parse_args()
 
-    device = torch.device(args.device)
+    # Load or create config
+    if args.config:
+        config = ExperimentConfig.from_yaml(args.config)
+        print(f"Loaded config from: {args.config}")
+    else:
+        config = ExperimentConfig(
+            name="mnist_mlp_eval",
+            eval=EvalConfig(),
+        )
+
+    # Override config with command-line args
+    if args.name:
+        config.name = args.name
+    if args.output_dir:
+        config.output_dir = args.output_dir
+
+    # Ensure eval config exists
+    if config.eval is None:
+        config.eval = EvalConfig()
+
+    eval_cfg = config.eval
+
+    # Override eval config with command-line args
+    if args.checkpoint is not None:
+        eval_cfg.checkpoint = args.checkpoint
+    if args.bits is not None:
+        eval_cfg.bits = args.bits
+    if args.device is not None:
+        eval_cfg.device = args.device
+    if args.data_root is not None:
+        eval_cfg.data_root = args.data_root
+    if args.batch_size is not None:
+        eval_cfg.batch_size = args.batch_size
+    if args.num_workers is not None:
+        eval_cfg.num_workers = args.num_workers
+    if args.skip_eval:
+        eval_cfg.skip_eval = True
+    if args.zlib:
+        eval_cfg.run_zlib = True
+    if args.zlib_level is not None:
+        eval_cfg.zlib_level = args.zlib_level
+    if args.act_probe:
+        eval_cfg.run_activation_probe = True
+
+    # Set device
+    if eval_cfg.device == "auto":
+        device_str = "cuda" if torch.cuda.is_available() else "cpu"
+    else:
+        device_str = eval_cfg.device
+    device = torch.device(device_str)
+
+    print(f"\n=== Evaluation: {config.name} ===")
     print(f"Device: {device}")
-    print(f"Checkpoint: {args.ckpt}")
+    print(f"Checkpoint: {eval_cfg.checkpoint}")
+    print(f"Quantization: {eval_cfg.bits} bits")
 
-    ckpt = _load_checkpoint(args.ckpt, map_location="cpu")
+    # Create output directory
+    config.output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Load checkpoint
+    ckpt = _load_checkpoint(eval_cfg.checkpoint, map_location="cpu")
+
+    # Create and load model
     model = MLP(dims=MNIST_DIMS, flatten_input=True).to(device)
     model.load_state_dict(ckpt["model_state"], strict=True)
 
     if "config" in ckpt:
-        cfg = ckpt["config"]
-        try:
-            print("Saved config:", asdict(cfg))
-        except Exception:
-            print("Saved config:", cfg)
+        print("Checkpoint contains saved config")
 
-    print(f"\nWeight entropy report ({args.bits}-bit symmetric quantization):")
-    report_weight_entropy(model, bits=args.bits)
+    # Measure weight entropy
+    entropy_results = measure_weight_entropy(model, bits=eval_cfg.bits)
+    print_entropy_analysis(entropy_results)
 
-    _weight_entropy_and_ratios(model, bits=args.bits)
+    # Build compression results
+    compression = CompressionResults(
+        bits=eval_cfg.bits,
+        per_layer_entropy=[
+            LayerEntropyStats(
+                name=stats.name,
+                entropy_bits=stats.entropy_bits,
+                compression_ratio=stats.compression_ratio,
+                scale=stats.scale,
+                num_params=stats.num_params,
+            )
+            for stats in entropy_results.per_layer
+        ],
+        mean_entropy_bits=entropy_results.mean_entropy_bits,
+        mean_compression_ratio=entropy_results.mean_compression_ratio,
+    )
 
-    if args.zlib:
-        _weight_zlib_compress(model, bits=args.bits, level=args.zlib_level)
+    # Zlib baseline
+    if eval_cfg.run_zlib:
+        zlib_results = weight_zlib_compress(model, bits=eval_cfg.bits, level=eval_cfg.zlib_level)
+        print_zlib_compression(zlib_results)
 
-    # Optional: sanity-check accuracy and support activation probing
+        compression.zlib_enabled = True
+        compression.zlib_level = zlib_results.level
+        compression.total_raw_bytes = zlib_results.total_raw_bytes
+        compression.total_compressed_bytes = zlib_results.total_compressed_bytes
+        compression.zlib_compression_ratio = zlib_results.compression_ratio
+
+    # Initialize evaluation results
+    eval_results = EvaluationResults(compression=compression)
+
+    # Model evaluation
     test_loader = None
-    if (not args.no_eval) or args.act_probe:
+    if (not eval_cfg.skip_eval) or eval_cfg.run_activation_probe:
         _, test_loader = make_loaders(
-            data_root=args.data_root,
-            batch_size=args.batch_size,
-            num_workers=args.num_workers,
+            data_root=eval_cfg.data_root,
+            batch_size=eval_cfg.batch_size,
+            num_workers=eval_cfg.num_workers,
         )
 
-    if not args.no_eval and test_loader is not None:
+    if not eval_cfg.skip_eval and test_loader is not None:
         m = evaluate(model, test_loader, device)
-        print(f"\nCheckpoint eval | [Test] loss {m.loss:.4f} acc {m.acc * 100:.2f}%")
+        eval_results.test_loss = m.loss
+        eval_results.test_acc = m.acc
+        print(f"\n[Checkpoint Evaluation] | Test loss {m.loss:.4f} | Test acc {m.acc * 100:.2f}%")
 
-    if args.act_probe and test_loader is not None:
-        _activation_entropy_probe(model, test_loader, device, bits=args.bits)
+    # Activation probe
+    if eval_cfg.run_activation_probe and test_loader is not None:
+        act_results = _activation_entropy_probe(model, test_loader, device, bits=eval_cfg.bits)
+        print_activation_probe(act_results)
+        eval_results.activation_probe = act_results
+
+    # Compile and save results
+    experiment_results = ExperimentResults(
+        name=config.name,
+        config=config.to_dict(),
+        evaluation=eval_results,
+    )
+
+    results_path = config.output_dir / f"{config.name}_results.json"
+    experiment_results.to_json(results_path)
+    print(f"\nSaved results: {results_path}")
+
+    # Save config
+    config_path = config.output_dir / f"{config.name}_config.yaml"
+    config.to_yaml(config_path)
+    print(f"Saved config: {config_path}")
 
     print("\nDone.")
 

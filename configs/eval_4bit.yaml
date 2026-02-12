@@ -1,0 +1,35 @@
+# Evaluation configuration for 4-bit quantization analysis
+
+name: mnist_mlp_eval_4bit
+description: "Evaluate trained MNIST MLP with 4-bit quantization analysis"
+tags:
+  - evaluation
+  - 4bit
+  - compression
+  - low-precision
+
+# Output paths
+output_dir: outputs
+checkpoint_dir: checkpoints/mnist_mlp
+
+# Evaluation configuration
+eval:
+  # Checkpoint path
+  checkpoint: checkpoints/mnist_mlp/model_state.pt
+
+  # Quantization analysis
+  bits: 4
+
+  # Data
+  data_root: data
+  batch_size: 256
+  num_workers: 2
+
+  # Hardware
+  device: auto
+
+  # Analysis options
+  skip_eval: false
+  run_zlib: true
+  zlib_level: 9
+  run_activation_probe: true

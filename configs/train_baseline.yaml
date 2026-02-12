@@ -1,0 +1,33 @@
+# Baseline MNIST MLP training configuration
+
+name: mnist_mlp_baseline
+description: "Baseline 3-layer MLP on MNIST with standard hyperparameters"
+tags:
+  - baseline
+  - mnist
+  - mlp
+
+# Output paths
+output_dir: outputs
+checkpoint_dir: checkpoints/mnist_mlp
+
+# Training configuration
+train:
+  # Model architecture
+  dims: [784, 256, 128, 10]
+  dropout: 0.0
+
+  # Optimization
+  lr: 0.001
+  num_epochs: 10
+  batch_size: 128
+
+  # Data
+  data_root: data
+  num_workers: 2
+
+  # Hardware
+  device: auto  # auto-detect CUDA, or use "cuda" / "cpu"
+
+  # Reproducibility
+  seed: 42

@@ -1,0 +1,37 @@
+# Full experiment: train + evaluate
+
+name: mnist_mlp_full_experiment
+description: "Complete experiment with training and evaluation"
+tags:
+  - full-pipeline
+  - mnist
+  - baseline
+
+# Output paths
+output_dir: outputs
+checkpoint_dir: checkpoints/mnist_mlp_experiment
+
+# Training configuration
+train:
+  dims: [784, 256, 128, 10]
+  dropout: 0.1
+  lr: 0.001
+  num_epochs: 15
+  batch_size: 128
+  data_root: data
+  num_workers: 2
+  device: auto
+  seed: 42
+
+# Evaluation configuration
+eval:
+  checkpoint: checkpoints/mnist_mlp_experiment/model_state.pt
+  bits: 8
+  data_root: data
+  batch_size: 256
+  num_workers: 2
+  device: auto
+  skip_eval: false
+  run_zlib: true
+  zlib_level: 9
+  run_activation_probe: true

@@ -12,6 +12,8 @@ license = { text = "MIT" }
 dependencies = [
   "torch",
   "torchvision",
+  "pyyaml",
+  "tqdm",
 ]
 
 [project.optional-dependencies]

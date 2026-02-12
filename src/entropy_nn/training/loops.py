@@ -88,10 +88,29 @@ def train(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     num_epochs: int = 10,
-) -> None:
-    """Run the full training loop with per-epoch evaluation."""
+) -> dict[str, list]:
+    """
+    Run the full training loop with per-epoch evaluation.
+
+    Returns:
+        Dictionary with per-epoch metrics:
+        - epochs: list of epoch numbers
+        - train_loss, train_acc: training metrics
+        - test_loss, test_acc: test metrics
+        - epoch_time_s: time per epoch
+    """
     m = evaluate(model, test_loader, device)
     print(f"Init | [Test] loss {m.loss:.4f} acc {m.acc * 100:.2f}%")
+
+    # Initialize result tracking
+    results = {
+        "epochs": [],
+        "train_loss": [],
+        "train_acc": [],
+        "test_loss": [],
+        "test_acc": [],
+        "epoch_time_s": [],
+    }
 
     outer_pbar = tqdm(range(1, num_epochs + 1), desc="Training")
 
@@ -101,9 +120,19 @@ def train(
         test_m = evaluate(model, test_loader, device)
         dt = time.time() - t0
 
+        # Record results
+        results["epochs"].append(epoch)
+        results["train_loss"].append(train_m.loss)
+        results["train_acc"].append(train_m.acc)
+        results["test_loss"].append(test_m.loss)
+        results["test_acc"].append(test_m.acc)
+        results["epoch_time_s"].append(dt)
+
         tqdm.write(
             f"Epoch {epoch:02d}/{num_epochs:02d} | "
             f"[Train] loss {train_m.loss:.4f} acc {train_m.acc * 100:.2f}% | "
             f"[Test] loss {test_m.loss:.4f} acc {test_m.acc * 100:.2f}% | "
             f"{dt:.1f}s"
         )
+
+    return results

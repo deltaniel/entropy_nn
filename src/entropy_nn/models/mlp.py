@@ -5,6 +5,8 @@ from typing import Sequence
 import torch
 import torch.nn as nn
 
+MNIST_DIMS = [28 * 28, 256, 128, 10]
+
 
 class MLP(nn.Module):
     def __init__(
