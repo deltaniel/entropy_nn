@@ -1,3 +1,14 @@
 # VS Code
 .vscode/
 *.code-workspace
+
+# Python
+__pycache__/
+*.egg-info/
+
+# Training
+/data/
+outputs/
+checkpoints/
+*.pt
+*.pth

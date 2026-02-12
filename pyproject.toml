@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "entropy_nn"
+version = "0.0.1"
+requires-python = ">=3.13"
+authors = [{ name = "Daniel Ruan", email = "daniel.ruan@princeton.edu" }]
+license = { text = "MIT" }
+
+dependencies = [
+  "torch",
+  "torchvision",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7",
+  "ruff>=0.5",
+]
+
+[project.scripts]
+train-mnist-mlp = "entropy_nn.cli.train_mnist_mlp:main"
+eval-mnist-mlp = "entropy_nn.cli.eval_mnist_mlp:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.format]
+indent-style = "space"
+quote-style = "double"
+
+[tool.ruff.lint]
+extend-select = ["RUF013"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
