@@ -58,11 +58,11 @@ def encode_tensor(q: torch.Tensor, scale: float, qmax: int, *, coder_type: Liter
         payload = coder.get_compressed()
 
     elif coder_type == "huffman":
-        coder = constriction.symbol.StackCoder()
+        encoder = constriction.symbol.QueueEncoder()
         encoder_codebook = constriction.symbol.huffman.EncoderHuffmanTree(probs)
-        for sym in s_np[::-1]:  # reverse for stack semantics
-            coder.encode_symbol(int(sym), encoder_codebook)
-        payload, _bitrate = coder.get_compressed()
+        for sym in s_np:  # Queue processes in forward order
+            encoder.encode_symbol(int(sym), encoder_codebook)
+        payload, _bitrate = encoder.get_compressed()
 
     else:
         raise ValueError(f"Unsupported coder: {coder_type}")
@@ -86,7 +86,7 @@ def decode_tensor(encoded: EncodedTensor) -> torch.Tensor:
         s = ans.decode(model, encoded.n).astype(np.int32)
 
     elif encoded.coder_kind == "huffman":
-        decoder = constriction.symbol.StackCoder(encoded.payload)
+        decoder = constriction.symbol.QueueDecoder(encoded.payload)
         decoder_codebook = constriction.symbol.huffman.DecoderHuffmanTree(encoded.probs)
 
         s = np.empty(encoded.n, dtype=np.int32)

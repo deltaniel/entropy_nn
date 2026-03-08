@@ -1,0 +1,62 @@
+{
+  "name": "ans_vs_huffman_comparison",
+  "checkpoint": "checkpoints\\mnist_mlp_experiment\\model_state.pt",
+  "device": "cuda",
+  "bits": 8,
+  "coders": [
+    "ans",
+    "huffman"
+  ],
+  "num_iterations": 50,
+  "warmup": 10,
+  "comparisons": [
+    {
+      "model_name": "Baseline (FP32)",
+      "bits": 0,
+      "coder_type": null,
+      "memory_mb": 11.2978515625,
+      "latency_mean_ms": 0.32891400216612965,
+      "latency_std_ms": 0.06248942885816761,
+      "accuracy": 0.9807,
+      "compression_stats": {
+        "total_params": 235146.0,
+        "original_mb": 0.8970108032226562,
+        "compression_ratio": 1.0
+      }
+    },
+    {
+      "model_name": "EntropyAware (ANS)",
+      "bits": 8,
+      "coder_type": "ans",
+      "memory_mb": 11.4326171875,
+      "latency_mean_ms": 6.627353999647312,
+      "latency_std_ms": 0.2902360148817797,
+      "accuracy": 0.9809,
+      "compression_stats": {
+        "total_params": 235146.0,
+        "original_bytes": 940584.0,
+        "encoded_bytes": 173912.0,
+        "compression_ratio": 5.4083904503427025,
+        "original_mb": 0.8970108032226562,
+        "encoded_mb": 0.16585540771484375
+      }
+    },
+    {
+      "model_name": "EntropyAware (HUFFMAN)",
+      "bits": 8,
+      "coder_type": "huffman",
+      "memory_mb": 11.4326171875,
+      "latency_mean_ms": 40.928996001021005,
+      "latency_std_ms": 5.791569825958491,
+      "accuracy": 0.9809,
+      "compression_stats": {
+        "total_params": 235146.0,
+        "original_bytes": 940584.0,
+        "encoded_bytes": 174892.0,
+        "compression_ratio": 5.378084760881001,
+        "original_mb": 0.8970108032226562,
+        "encoded_mb": 0.16679000854492188
+      }
+    }
+  ]
+}

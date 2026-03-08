@@ -394,3 +394,113 @@ def print_comparative_profile(profile: ComparativeProfile) -> None:
     all_ok = memory_ok and latency_ok and (accuracy_ok if profile.accuracy_delta is not None else True)
     print(f"\n  Overall: {'SUCCESS' if all_ok else 'NEEDS IMPROVEMENT'}")
     print("=" * 60)
+
+
+@dataclass
+class MultiModelComparison:
+    """Comparison results for multiple model variants."""
+
+    model_name: str
+    bits: int  # 0 for FP32 baseline
+    coder_type: str | None  # "ans", "huffman", or None for baseline
+    profile: InferenceProfile
+    compression_stats: dict[str, float] | None = None
+
+
+def print_multi_model_comparison(
+    baseline_name: str,
+    comparisons: list[MultiModelComparison],
+) -> None:
+    """
+    Pretty-print comparison table for multiple model variants.
+
+    Args:
+        baseline_name: Name of the baseline model
+        comparisons: List of comparison results (baseline should be first)
+    """
+    print("\n" + "=" * 120)
+    print(f"MULTI-MODEL COMPARISON: {baseline_name}")
+    print("=" * 120)
+
+    # Header
+    print(
+        f"{'Model':<25} {'Bits':<6} {'Coder':<10} "
+        f"{'Memory (MB)':<12} {'Latency (ms)':<14} {'Accuracy (%)':<12} {'Comp Ratio':<12}"
+    )
+    print("-" * 120)
+
+    # Find baseline for relative metrics
+    baseline = comparisons[0] if comparisons else None
+
+    # Data rows
+    for comp in comparisons:
+        model_str = comp.model_name
+        bits_str = str(comp.bits) if comp.bits > 0 else "FP32"
+        coder_str = comp.coder_type.upper() if comp.coder_type else "-"
+        mem_str = f"{comp.profile.memory.peak_memory_allocated_mb:.2f}"
+        latency_str = f"{comp.profile.latency.mean_time_ms:.3f} ± {comp.profile.latency.std_time_ms:.3f}"
+        acc_str = f"{comp.profile.accuracy * 100:.2f}" if comp.profile.accuracy is not None else "N/A"
+
+        if comp.compression_stats and comp.compression_stats.get("compression_ratio", 0) > 0:
+            comp_str = f"{comp.compression_stats['compression_ratio']:.2f}x"
+        else:
+            comp_str = "1.00x"
+
+        print(f"{model_str:<25} {bits_str:<6} {coder_str:<10} {mem_str:<12} {latency_str:<14} {acc_str:<12} {comp_str:<12}")
+
+    # Relative comparisons
+    if baseline and len(comparisons) > 1:
+        print("\n" + "-" * 120)
+        print("RELATIVE TO BASELINE:")
+        print("-" * 120)
+        print(
+            f"{'Model':<25} {'Bits':<6} {'Coder':<10} "
+            f"{'Mem D (%)':<12} {'Latency D (%)':<16} {'Acc D (%)':<12} {'Status':<15}"
+        )
+        print("-" * 120)
+
+        for comp in comparisons[1:]:
+            model_str = comp.model_name
+            bits_str = str(comp.bits)
+            coder_str = comp.coder_type.upper() if comp.coder_type else "-"
+
+            # Memory delta
+            mem_delta = (
+                (comp.profile.memory.peak_memory_allocated_mb / baseline.profile.memory.peak_memory_allocated_mb - 1.0)
+                * 100
+                if baseline.profile.memory.peak_memory_allocated_mb > 0
+                else 0.0
+            )
+            mem_delta_str = f"{mem_delta:+.1f}"
+
+            # Latency delta
+            lat_delta = (
+                (comp.profile.latency.mean_time_ms / baseline.profile.latency.mean_time_ms - 1.0) * 100
+                if baseline.profile.latency.mean_time_ms > 0
+                else 0.0
+            )
+            lat_delta_str = f"{lat_delta:+.1f}"
+
+            # Accuracy delta
+            if comp.profile.accuracy is not None and baseline.profile.accuracy is not None:
+                acc_delta = (comp.profile.accuracy - baseline.profile.accuracy) * 100
+                acc_delta_str = f"{acc_delta:+.2f}"
+            else:
+                acc_delta_str = "N/A"
+
+            # Success check
+            memory_ok = mem_delta <= -40  # ≥40% reduction
+            latency_ok = lat_delta < 100  # <2× slower
+            if comp.profile.accuracy is not None and baseline.profile.accuracy is not None:
+                accuracy_ok = (comp.profile.accuracy / baseline.profile.accuracy) >= 0.98
+            else:
+                accuracy_ok = True
+
+            status = "[PASS]" if (memory_ok and latency_ok and accuracy_ok) else "[FAIL]"
+
+            print(
+                f"{model_str:<25} {bits_str:<6} {coder_str:<10} "
+                f"{mem_delta_str:<12} {lat_delta_str:<16} {acc_delta_str:<12} {status:<15}"
+            )
+
+    print("=" * 120)

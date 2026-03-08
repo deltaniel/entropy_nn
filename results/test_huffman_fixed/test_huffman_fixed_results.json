@@ -1,0 +1,44 @@
+{
+  "name": "test_huffman_fixed",
+  "checkpoint": "checkpoints\\mnist_mlp_experiment\\model_state.pt",
+  "device": "cuda",
+  "bits": 8,
+  "coders": [
+    "huffman"
+  ],
+  "num_iterations": 20,
+  "warmup": 5,
+  "comparisons": [
+    {
+      "model_name": "Baseline (FP32)",
+      "bits": 0,
+      "coder_type": null,
+      "memory_mb": 11.2978515625,
+      "latency_mean_ms": 0.4065350047312677,
+      "latency_std_ms": 0.10949005701158625,
+      "accuracy": null,
+      "compression_stats": {
+        "total_params": 235146.0,
+        "original_mb": 0.8970108032226562,
+        "compression_ratio": 1.0
+      }
+    },
+    {
+      "model_name": "EntropyAware (HUFFMAN)",
+      "bits": 8,
+      "coder_type": "huffman",
+      "memory_mb": 11.4326171875,
+      "latency_mean_ms": 40.27428000117652,
+      "latency_std_ms": 5.978905032753426,
+      "accuracy": null,
+      "compression_stats": {
+        "total_params": 235146.0,
+        "original_bytes": 940584.0,
+        "encoded_bytes": 174892.0,
+        "compression_ratio": 5.378084760881001,
+        "original_mb": 0.8970108032226562,
+        "encoded_mb": 0.16679000854492188
+      }
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "name": "test_ans_only",
+  "checkpoint": "checkpoints\\mnist_mlp_experiment\\model_state.pt",
+  "device": "cuda",
+  "bits": 8,
+  "coders": [
+    "ans"
+  ],
+  "num_iterations": 20,
+  "warmup": 5,
+  "comparisons": [
+    {
+      "model_name": "Baseline (FP32)",
+      "bits": 0,
+      "coder_type": null,
+      "memory_mb": 11.2978515625,
+      "latency_mean_ms": 0.2515700012736488,
+      "latency_std_ms": 0.0052437676648722535,
+      "accuracy": null,
+      "compression_stats": {
+        "total_params": 235146.0,
+        "original_mb": 0.8970108032226562,
+        "compression_ratio": 1.0
+      }
+    },
+    {
+      "model_name": "EntropyAware (ANS)",
+      "bits": 8,
+      "coder_type": "ans",
+      "memory_mb": 11.4326171875,
+      "latency_mean_ms": 6.578235000051791,
+      "latency_std_ms": 0.539460408986215,
+      "accuracy": null,
+      "compression_stats": {
+        "total_params": 235146.0,
+        "original_bytes": 940584.0,
+        "encoded_bytes": 173912.0,
+        "compression_ratio": 5.4083904503427025,
+        "original_mb": 0.8970108032226562,
+        "encoded_mb": 0.16585540771484375
+      }
+    }
+  ]
+}
